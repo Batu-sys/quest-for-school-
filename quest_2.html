@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Квест — маршрутный лист</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  // Загрузка библиотек с несколькими резервными источниками:
+  // если cdnjs недоступен (бывает заблокирован в некоторых сетях/регионах),
+  // пробуем jsdelivr и unpkg — иначе сканер и генерация QR молча не работают.
+  function loadWithFallback(urls, cb){
+    var i = 0;
+    (function tryNext(){
+      if(i >= urls.length){ cb(false); return; }
+      var url = urls[i++];
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = function(){ cb(true); };
+      s.onerror = function(){ tryNext(); };
+      document.head.appendChild(s);
+    })();
+  }
+  loadWithFallback([
+    'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
+    'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js',
+    'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js'
+  ], function(ok){ window.__qrcodeLoaded = ok; });
+  loadWithFallback([
+    'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js',
+    'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',
+    'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js'
+  ], function(ok){ window.__jsqrLoaded = ok; });
+</script>
+<style>
+  :root{
+    --paper:#F2ECD9;
+    --paper-2:#E9E0C3;
+    --ink:#2B2A22;
+    --ink-soft:#5B5847;
+    --forest:#22412F;
+    --forest-dark:#182F21;
+    --amber:#C98A2C;
+    --rust:#B4452C;
+    --line: rgba(43,42,34,0.22);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    -webkit-tap-highlight-color:transparent;
+  }
+  h1,h2,h3,.display{font-family:'Fraunces',serif; font-weight:600; margin:0;}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;background:var(--forest);color:var(--paper);
+    position:sticky;top:0;z-index:5;
+  }
+  .topbar .brand{font-family:'Fraunces',serif;font-weight:600;font-size:19px;letter-spacing:.2px;}
+  .topbar button.link{
+    background:none;border:none;color:var(--paper);opacity:.85;
+    font-family:'Inter',sans-serif;font-size:14px;cursor:pointer;text-decoration:underline;
+  }
+  .wrap{padding:20px 18px 60px;max-width:640px;margin:0 auto;}
+  .card{
+    background:var(--paper-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:20px;
+    margin-bottom:16px;
+  }
+  .hero{border-top:4px solid var(--amber); text-align:left;}
+  .hero h1{font-size:30px;line-height:1.15;margin-bottom:8px;}
+  .hero p{color:var(--ink-soft);margin:0 0 18px;font-size:15px;line-height:1.5;}
+  .stack{display:flex;flex-direction:column;gap:12px;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:14px 18px;border-radius:3px;border:1px solid transparent;
+    font-family:'Inter',sans-serif;font-weight:600;font-size:15px;cursor:pointer;
+    width:100%;text-align:center;
+  }
+  .btn.auto{width:auto;flex:1;}
+  .btn-primary{background:var(--forest);color:var(--paper);}
+  .btn-primary:hover{background:var(--forest-dark);}
+  .btn-outline{background:transparent;color:var(--forest);border-color:var(--forest);}
+  .btn-amber{background:var(--amber);color:#2B2200;}
+  .btn-danger{background:transparent;color:var(--rust);border-color:var(--rust);}
+  .btn-ghost{background:transparent;color:var(--ink-soft);border:none;text-decoration:underline;width:auto;padding:6px 0;font-size:13px;cursor:pointer;}
+  .btn-mini{width:auto;padding:8px 12px;font-size:13px;border-radius:3px;border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;}
+  .btn-mini.active{border-color:var(--amber);color:var(--ink);}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  label{display:block;font-size:13px;color:var(--ink-soft);margin-bottom:6px;font-weight:600;}
+  input[type=text],input[type=password],input[type=number],textarea{
+    width:100%;padding:12px 12px;border:1px solid var(--line);border-radius:3px;
+    background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;font-size:15px;
+  }
+  textarea{resize:vertical;min-height:56px;}
+  .field{margin-bottom:14px;}
+  .field-row{display:flex;gap:12px;}
+  .field-row .field{flex:1;}
+  .field-hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+  .opt-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .opt-row input[type=text]{flex:1;}
+  .tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .tab{
+    padding:10px 14px;font-size:14px;font-weight:600;color:var(--ink-soft);
+    border-bottom:2px solid transparent;cursor:pointer;background:none;border-top:none;border-left:none;border-right:none;
+  }
+  .tab.active{color:var(--forest);border-bottom-color:var(--amber);}
+  .qr-list{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .qr-card{background:#fff;border:1px dashed var(--line);border-radius:3px;padding:18px;text-align:center;}
+  .qr-card .qr-slot{display:flex;justify-content:center;margin-bottom:8px;}
+  .qr-card .num{font-family:'Fraunces',serif;font-weight:600;font-size:15px;}
+  .qr-card .qr-code-text{font-family:monospace;font-size:11px;color:var(--ink-soft);margin-top:4px;word-break:break-all;}
+  .q-row{padding:12px 0;border-bottom:1px solid var(--line);}
+  .q-row:last-child{border-bottom:none;}
+  .q-row .top-line{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .q-row .txt{font-size:14px;line-height:1.4;}
+  .q-row .txt .n{color:var(--ink-soft);font-size:12px;display:block;margin-bottom:2px;}
+  .q-row .badges{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;}
+  .q-row .actions{display:flex;gap:10px;white-space:nowrap;}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:#DCD3AF;color:var(--ink-soft);}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:var(--forest);color:var(--paper);}
+  .pill.used{background:var(--rust);}
+  .pill.correct{background:#3C6E47;}
+  .pill.wrong{background:var(--rust);}
+  .feed-row{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .feed-row .meta{color:var(--ink-soft);font-size:12px;}
+  table.board{width:100%;border-collapse:collapse;font-size:14px;}
+  table.board th,table.board td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);}
+  table.board th{color:var(--ink-soft);font-weight:600;font-size:12px;}
+  table.board tr:first-child td{font-weight:700;}
+  .rank{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--amber);color:#2B2200;font-size:12px;font-weight:700;margin-right:8px;}
+  .stat-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+  .stat-card{flex:1;min-width:120px;background:var(--paper-2);border:1px solid var(--line);border-radius:4px;padding:12px 14px;}
+  .stat-card .val{font-family:'Fraunces',serif;font-size:22px;font-weight:600;}
+  .stat-card .lbl{font-size:12px;color:var(--ink-soft);}
+  video#scan-video{width:100%;border-radius:4px;background:#000;display:block;border:2px solid var(--forest);}
+  .scan-frame{position:relative;}
+  .scan-guide{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:62%;aspect-ratio:1/1;border:3px solid var(--amber);border-radius:10px;pointer-events:none;box-shadow:0 0 0 999px rgba(0,0,0,0.28);}
+  .quiz-opt{display:block;width:100%;text-align:left;padding:14px 16px;margin-bottom:10px;border:1px solid var(--line);border-radius:3px;background:var(--paper);font-family:'Inter',sans-serif;font-size:15px;cursor:pointer;}
+  .quiz-opt:hover{border-color:var(--forest);}
+  .quiz-opt.correct{background:#E1EEDD;border-color:#3C6E47;}
+  .quiz-opt.wrong{background:#F5DED7;border-color:var(--rust);}
+  .status-banner{padding:16px;border-radius:4px;margin-bottom:16px;font-weight:600;text-align:center;position:relative;overflow:visible;}
+  .status-banner.ok{background:#E1EEDD;color:#2B4A32;}
+  .status-banner.bad{background:#F5DED7;color:#7A3222;}
+  .status-banner .pts{display:block;font-size:13px;font-weight:600;margin-top:4px;opacity:.85;}
+  .muted{color:var(--ink-soft);font-size:13px;}
+  .confirm-box{background:#F5DED7;border:1px solid var(--rust);border-radius:4px;padding:12px;margin-top:10px;}
+  .center{text-align:center;}
+  .divider{border:none;border-top:1px dashed var(--line);margin:16px 0;}
+  .timer-badge{
+    display:inline-block;margin-bottom:14px;padding:6px 14px;border-radius:20px;
+    background:var(--amber);color:#2B2200;font-weight:700;font-size:14px;font-family:'Fraunces',serif;
+  }
+  .timer-badge.low{background:var(--rust);color:#fff;}
+  .quick-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .confetti-container{position:relative;height:0;pointer-events:none;}
+  .confetti-piece{position:absolute;top:0;left:50%;width:8px;height:8px;border-radius:2px;opacity:1;animation:burst .8s ease-out forwards;}
+  @keyframes burst{ to{ transform:translate(var(--dx),var(--dy)) rotate(180deg); opacity:0; } }
+  @media print{
+    body *{visibility:hidden;}
+    #print-area, #print-area *{visibility:visible;}
+    #print-area{position:absolute;left:0;top:0;width:100%;}
+    .no-print{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<canvas id="scan-canvas" style="display:none;"></canvas>
+<div id="app"></div>
+<script>
+(function(){
+
+var ADMIN_PASSWORD = "quest2026"; // <- поменяйте пароль организатора здесь
+
+var state = {
+  role: null,
+  adminAuthed: false,
+  teamName: "",
+  view: "home",
+  adminTab: "create",
+  questions: [],
+  scans: [],
+  scanning: false,
+  rafId: null,
+  cameraStream: null,
+  scanError: "",
+  currentQuestion: null,
+  currentEntry: null,
+  usedInfo: null,
+  lastCorrect: null,
+  editingId: null,
+  listDayFilter: "all",
+  monitorDayFilter: "all",
+  timeLeft: 0,
+  quizTimerId: null,
+  confirmReset: false,
+  confirmDeleteId: null,
+  monitorTimer: null,
+  passwordError: false,
+  audioCtx: null,
+  manualOpen: false
+};
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+async function loadQuestions(){
+  try{ var r = await window.storage.get('questions-list', true); return r ? JSON.parse(r.value) : []; }
+  catch(e){ return []; }
+}
+async function saveQuestions(list){
+  try{ await window.storage.set('questions-list', JSON.stringify(list), true); }catch(e){ console.error(e); }
+}
+async function loadScans(){
+  try{ var r = await window.storage.get('scans-log', true); return r ? JSON.parse(r.value) : []; }
+  catch(e){ return []; }
+}
+async function saveScans(list){
+  try{ await window.storage.set('scans-log', JSON.stringify(list), true); }catch(e){ console.error(e); }
+}
+
+function fmtTime(ts){
+  var d = new Date(ts);
+  function p(n){ return n<10 ? "0"+n : ""+n; }
+  return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+}
+function fmtDuration(ms){
+  var s = Math.max(0, Math.round(ms/1000));
+  var h = Math.floor(s/3600); s %= 3600;
+  var m = Math.floor(s/60); s %= 60;
+  var parts = [];
+  if(h) parts.push(h+"ч");
+  parts.push(m+"м");
+  parts.push(s+"с");
+  return parts.join(" ");
+}
+function esc(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function csvEsc(s){
+  s = String(s);
+  if(s.indexOf(';')!==-1 || s.indexOf('"')!==-1 || s.indexOf('\n')!==-1){ s = '"'+s.replace(/"/g,'""')+'"'; }
+  return s;
+}
+function getDays(){
+  var set = {};
+  state.questions.forEach(function(q){ set[q.day || 1] = true; });
+  return Object.keys(set).map(Number).sort(function(a,b){ return a-b; });
+}
+
+// ---------- AUDIO ----------
+function ensureAudio(){
+  if(!state.audioCtx){
+    try{ state.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+  }
+  return state.audioCtx;
+}
+function playTone(freq, duration, type){
+  var ctx = ensureAudio();
+  if(!ctx) return;
+  var o = ctx.createOscillator();
+  var g = ctx.createGain();
+  o.type = type || 'sine';
+  o.frequency.value = freq;
+  o.connect(g); g.connect(ctx.destination);
+  g.gain.setValueAtTime(0.16, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+  o.start();
+  o.stop(ctx.currentTime + duration);
+}
+function playCorrectSound(){ playTone(880,0.15); setTimeout(function(){ playTone(1175,0.18); }, 120); }
+function playWrongSound(){ playTone(220,0.28,'sawtooth'); }
+
+function spawnConfetti(container){
+  if(!container) return;
+  var colors = ['#C98A2C','#22412F','#B4452C','#8A7F4A'];
+  for(var i=0;i<16;i++){
+    var s = document.createElement('span');
+    s.className = 'confetti-piece';
+    var angle = Math.random()*360;
+    var dist = 60 + Math.random()*70;
+    var dx = Math.cos(angle*Math.PI/180)*dist;
+    var dy = Math.sin(angle*Math.PI/180)*dist;
+    s.style.setProperty('--dx', dx+'px');
+    s.style.setProperty('--dy', dy+'px');
+    s.style.background = colors[i % colors.length];
+    s.style.animationDelay = (Math.random()*0.1)+'s';
+    container.appendChild(s);
+  }
+  setTimeout(function(){ if(container.parentNode) container.innerHTML = ''; }, 900);
+}
+
+// ---------- RENDER ----------
+
+function render(){
+  var app = document.getElementById('app');
+  var html = "";
+  if(state.view === 'home') html = viewHome();
+  else if(state.view === 'admin-login') html = viewAdminLogin();
+  else if(state.view === 'admin') html = viewAdmin();
+  else if(state.view === 'team-setup') html = viewTeamSetup();
+  else if(state.view === 'team-scan') html = viewTeamScan();
+  else if(state.view === 'team-quiz') html = viewTeamQuiz();
+  else if(state.view === 'team-result') html = viewTeamResult();
+  else if(state.view === 'team-used') html = viewTeamUsed();
+  else if(state.view === 'team-notfound') html = viewTeamNotFound();
+  app.innerHTML = html;
+  renderQrSlots();
+  if(state.view === 'team-scan' && state.scanning) attachVideo();
+}
+
+function topbar(title, showExit){
+  return '<div class="topbar"><div class="brand">'+esc(title)+'</div>' +
+    (showExit ? '<button class="link" data-action="go-home">на главную</button>' : '') +
+  '</div>';
+}
+
+function viewHome(){
+  return topbar('Квест', false) +
+  '<div class="wrap">' +
+  '<div class="card hero">' +
+    '<h1>Маршрутный лист квеста</h1>' +
+    '<p>Создавайте вопросы, печатайте QR-коды и следите за командами в реальном времени. Выберите свою роль, чтобы продолжить.</p>' +
+    '<div class="stack">' +
+      '<button class="btn btn-primary" data-action="pick-admin">Я организатор</button>' +
+      '<button class="btn btn-outline" data-action="pick-team">Я участник команды</button>' +
+    '</div>' +
+  '</div>' +
+  '<p class="muted">Организатор создаёт QR-коды с вопросами и печатает их. Команды сканируют коды на месте — каждый код открывается только один раз, для любой команды.</p>' +
+  '</div>';
+}
+
+function viewAdminLogin(){
+  return topbar('Вход организатора', true) +
+  '<div class="wrap">' +
+  '<div class="card">' +
+    '<div class="field"><label>Пароль организатора</label><input type="password" id="admin-pass" placeholder="Введите пароль"></div>' +
+    (state.passwordError ? '<p style="color:var(--rust);font-size:13px;margin:-6px 0 12px;">Неверный пароль</p>' : '') +
+    '<button class="btn btn-primary" data-action="admin-login">Войти</button>' +
+  '</div></div>';
+}
+
+function viewTeamSetup(){
+  return topbar('Команда', true) +
+  '<div class="wrap">' +
+  '<div class="card">' +
+    '<div class="field"><label>Название команды</label><input type="text" id="team-name-input" placeholder="Например: Соколы" value="'+esc(state.teamName)+'"></div>' +
+    '<button class="btn btn-primary" data-action="team-continue">Продолжить</button>' +
+  '</div></div>';
+}
+
+function teamStats(team){
+  var mine = state.scans.filter(function(s){ return s.team === team && s.answered; });
+  var correct = mine.filter(function(s){ return s.correct; }).length;
+  var points = mine.reduce(function(sum,s){ return sum + (s.ptsEarned||0); }, 0);
+  return {scanned: mine.length, correct: correct, total: state.questions.length, points: points};
+}
+
+function viewTeamScan(){
+  var st = teamStats(state.teamName);
+  var body;
+  if(state.scanning){
+    body =
+    '<div class="scan-frame"><video id="scan-video" playsinline autoplay muted></video><div class="scan-guide"></div></div>' +
+    '<p class="muted center" style="margin-top:10px;">Совместите QR-код с рамкой, держите телефон ровно на расстоянии 15–20 см и обеспечьте хорошее освещение</p>' +
+    '<button class="btn btn-outline" style="margin-top:10px;" data-action="stop-scan">Отменить</button>';
+  } else {
+    body =
+    '<button class="btn btn-primary" data-action="start-scan">Сканировать QR-код</button>' +
+    (state.scanError ? '<p style="color:var(--rust);font-size:13px;margin-top:10px;">'+esc(state.scanError)+'</p>' : '');
+  }
+  var manualHtml = '<button class="btn-ghost" data-action="manual-toggle" style="margin-top:14px;">Код не сканируется? Ввести вручную</button>' +
+    (state.manualOpen ?
+      '<div class="field" style="margin-top:10px;text-align:left;">' +
+        '<label>Код с карточки (например QUEST-abc123)</label>' +
+        '<input type="text" id="manual-code-input" placeholder="QUEST-...">' +
+        '<button class="btn btn-primary" style="margin-top:8px;" data-action="manual-submit">Подтвердить</button>' +
+      '</div>' : '');
+  return topbar('Команда: '+state.teamName, true) +
+  '<div class="wrap">' +
+  '<div class="card center">' +
+    '<p class="muted" style="margin-bottom:14px;">Баллов: '+st.points+' · Правильных: '+st.correct+' · Открыто: '+st.scanned+'</p>' +
+    body +
+    manualHtml +
+  '</div>' +
+  '<button class="btn-ghost" data-action="team-change">Сменить команду</button>' +
+  '</div>';
+}
+
+function attachVideo(){
+  var video = document.getElementById('scan-video');
+  if(!video) return;
+  if(state.cameraStream){ video.srcObject = state.cameraStream; video.play().catch(function(){}); }
+}
+
+function viewTeamQuiz(){
+  var q = state.currentQuestion;
+  var timerHtml = '';
+  if(q.timeLimit > 0){
+    var low = state.timeLeft <= 5;
+    timerHtml = '<div class="timer-badge'+(low?' low':'')+'">Осталось: '+state.timeLeft+' с</div>';
+  }
+  var optsHtml = q.options.map(function(opt, i){
+    return '<button class="quiz-opt" data-action="answer" data-i="'+i+'">'+esc(opt)+'</button>';
+  }).join('');
+  return topbar('Команда: '+state.teamName, false) +
+  '<div class="wrap">' +
+  '<div class="card">' +
+    timerHtml +
+    '<h2 style="font-size:20px;margin-bottom:16px;">'+esc(q.text)+'</h2>' +
+    optsHtml +
+  '</div></div>';
+}
+
+function viewTeamResult(){
+  var q = state.currentQuestion;
+  var entry = state.currentEntry;
+  var optsHtml = q.options.map(function(opt, i){
+    var cls = "quiz-opt";
+    if(i === q.correctIndex) cls += " correct";
+    else if(i === entry.optionIndex) cls += " wrong";
+    return '<div class="'+cls+'">'+esc(opt)+'</div>';
+  }).join('');
+  var bannerLabel = entry.timedOut ? 'Время вышло' : (state.lastCorrect ? 'Верно!' : 'Неверно');
+  var ptsLine = state.lastCorrect ? '<span class="pts">+'+(entry.ptsEarned||0)+' баллов</span>' : '<span class="pts">+0 баллов</span>';
+  return topbar('Команда: '+state.teamName, false) +
+  '<div class="wrap">' +
+  '<div class="status-banner '+(state.lastCorrect ? 'ok' : 'bad')+'">' +
+    bannerLabel + ptsLine +
+    '<div class="confetti-container" id="confetti-container"></div>' +
+  '</div>' +
+  '<div class="card">' +
+    '<h2 style="font-size:18px;margin-bottom:16px;">'+esc(q.text)+'</h2>' +
+    optsHtml +
+  '</div>' +
+  '<button class="btn btn-primary" data-action="scan-next">Сканировать следующий QR</button>' +
+  '</div>';
+}
+
+function viewTeamUsed(){
+  var info = state.usedInfo;
+  return topbar('Команда: '+state.teamName, false) +
+  '<div class="wrap">' +
+  '<div class="status-banner bad">Этот QR-код уже использован</div>' +
+  '<div class="card"><p>Код уже отсканировала команда «'+esc(info.team)+'» в '+fmtTime(info.ts)+'.</p>' +
+  '<p class="muted">Повторное открытие одного и того же кода запрещено — попробуйте найти следующий.</p></div>' +
+  '<button class="btn btn-primary" data-action="scan-next">Сканировать другой QR</button>' +
+  '</div>';
+}
+
+function viewTeamNotFound(){
+  return topbar('Команда: '+state.teamName, false) +
+  '<div class="wrap">' +
+  '<div class="status-banner bad">QR-код не распознан</div>' +
+  '<div class="card"><p class="muted">Этот код не относится к текущему квесту. Попробуйте отсканировать ещё раз.</p></div>' +
+  '<button class="btn btn-primary" data-action="scan-next">Попробовать снова</button>' +
+  '</div>';
+}
+
+function viewAdmin(){
+  var tabs = '<div class="tabs no-print">' +
+    tabBtn('create','Создать вопрос') + tabBtn('list','Вопросы и печать') + tabBtn('monitor','Мониторинг') +
+    '</div>';
+  var body = "";
+  if(state.adminTab === 'create') body = adminCreateTab();
+  else if(state.adminTab === 'list') body = adminListTab();
+  else if(state.adminTab === 'monitor') body = adminMonitorTab();
+  return topbar('Панель организатора', true) + '<div class="wrap">' + tabs + body + '</div>';
+}
+function tabBtn(id, label){
+  return '<button class="tab'+(state.adminTab===id?' active':'')+'" data-action="admin-tab" data-tab="'+id+'">'+label+'</button>';
+}
+
+function adminCreateTab(){
+  var editing = state.editingId ? state.questions.find(function(q){ return q.id === state.editingId; }) : null;
+  var days = getDays();
+  var defaultDay = editing ? (editing.day||1) : (days.length ? days[days.length-1] : 1);
+  var text = editing ? editing.text : '';
+  var opts = editing ? editing.options : ['','','',''];
+  var correctIndex = editing ? editing.correctIndex : 0;
+  var points = editing ? editing.points : 10;
+  var timeLimit = editing != null ? editing.timeLimit : 30;
+  var hint = editing ? (editing.hint||'') : '';
+
+  return '<div class="card">' +
+    (editing ? '<p class="muted" style="margin-bottom:10px;">Редактирование вопроса №'+(state.questions.indexOf(editing)+1)+'</p>' : '') +
+    '<div class="field"><label>Текст вопроса</label>' +
+      '<textarea id="new-q-text" placeholder="Например: Сколько ступеней ведёт к главному входу школы?">'+esc(text)+'</textarea></div>' +
+    [0,1,2,3].map(function(i){
+      return '<div class="opt-row">' +
+        '<input type="radio" name="new-q-correct" value="'+i+'" '+(i===correctIndex?'checked':'')+' id="new-q-correct-'+i+'">' +
+        '<input type="text" id="new-q-opt-'+i+'" placeholder="Вариант ответа '+(i+1)+'" value="'+esc(opts[i]||'')+'">' +
+      '</div>';
+    }).join('') +
+    '<p class="muted" style="margin:6px 0 16px;">Отметьте кружком правильный вариант.</p>' +
+
+    '<div class="field-row">' +
+      '<div class="field"><label>День квеста</label><input type="number" id="new-q-day" min="1" value="'+defaultDay+'"></div>' +
+      '<div class="field"><label>Баллы за правильный ответ</label><input type="number" id="new-q-points" min="0" value="'+points+'"></div>' +
+    '</div>' +
+    '<div class="quick-row">' +
+      '<button type="button" class="btn-mini" data-action="quick-set" data-target="new-q-day" data-value="1">День 1</button>' +
+      '<button type="button" class="btn-mini" data-action="quick-set" data-target="new-q-day" data-value="2">День 2</button>' +
+      '<button type="button" class="btn-mini" data-action="quick-set" data-target="new-q-points" data-value="10">Лёгкий · 10</button>' +
+      '<button type="button" class="btn-mini" data-action="quick-set" data-target="new-q-points" data-value="20">Средний · 20</button>' +
+      '<button type="button" class="btn-mini" data-action="quick-set" data-target="new-q-points" data-value="30">Сложный · 30</button>' +
+    '</div>' +
+
+    '<div class="field"><label>Лимит времени на ответ, сек (0 — без ограничения)</label>' +
+      '<input type="number" id="new-q-timelimit" min="0" value="'+timeLimit+'">' +
+      '<div class="field-hint">За быстрый верный ответ команда получает бонусные баллы.</div></div>' +
+
+    '<div class="field"><label>Заметка организатора (где спрятан код) — участники её не видят</label>' +
+      '<input type="text" id="new-q-hint" placeholder="Например: под скамейкой у спортзала" value="'+esc(hint)+'"></div>' +
+
+    '<div class="row">' +
+      '<button class="btn btn-primary auto" data-action="save-question">'+(editing?'Сохранить изменения':'Добавить вопрос и создать QR')+'</button>' +
+      (editing ? '<button class="btn btn-outline auto" data-action="cancel-edit">Отмена</button>' : '') +
+    '</div>' +
+  '</div>';
+}
+
+function adminListTab(){
+  var days = getDays();
+  var dayTabs = dayFilterTabs(state.listDayFilter, 'set-list-day', days);
+  var filtered = state.listDayFilter === 'all' ? state.questions : state.questions.filter(function(q){ return String(q.day||1) === state.listDayFilter; });
+
+  if(state.questions.length === 0){
+    return '<div class="card"><p class="muted">Пока нет ни одного вопроса. Добавьте первый на вкладке «Создать вопрос».</p></div>';
+  }
+
+  var rows = filtered.map(function(q){
+    var i = state.questions.indexOf(q);
+    var used = state.scans.some(function(s){ return s.questionId === q.id; });
+    var delConfirm = state.confirmDeleteId === q.id ?
+      '<div class="confirm-box no-print">Удалить вопрос №'+(i+1)+' безвозвратно?' +
+      '<div class="row" style="margin-top:8px;">' +
+        '<button class="btn btn-danger auto" data-action="delete-question" data-id="'+q.id+'">Да, удалить</button>' +
+        '<button class="btn btn-outline auto" data-action="cancel-delete">Отмена</button>' +
+      '</div></div>' : '';
+    return '<div class="q-row">' +
+      '<div class="top-line">' +
+        '<div class="txt"><span class="n">№'+(i+1)+'</span>'+esc(q.text)+
+          '<div class="badges">' +
+            (used?'<span class="pill used">использован</span>':'<span class="pill">свободен</span>') +
+            '<span class="badge">День '+(q.day||1)+'</span>' +
+            '<span class="badge">'+(q.points||10)+' баллов</span>' +
+            (q.timeLimit ? '<span class="badge">'+q.timeLimit+' с</span>' : '<span class="badge">без лимита</span>') +
+          '</div>' +
+        '</div>' +
+        '<div class="actions no-print">' +
+          '<button class="btn-ghost" data-action="ask-edit" data-id="'+q.id+'">изменить</button>' +
+          '<button class="btn-ghost" data-action="ask-delete" data-id="'+q.id+'">удалить</button>' +
+        '</div>' +
+      '</div>' +
+      (q.hint ? '<p class="muted" style="margin:6px 0 0;">📍 '+esc(q.hint)+'</p>' : '') +
+      delConfirm +
+    '</div>';
+  }).join('');
+
+  var qrGrid = filtered.map(function(q){
+    var i = state.questions.indexOf(q);
+    return '<div class="qr-card"><div class="qr-slot" data-id="'+q.id+'" data-size="200"></div><div class="num">№'+(i+1)+'</div>' +
+      '<div class="qr-code-text">QUEST-'+esc(q.id)+'</div></div>';
+  }).join('');
+
+  var answerKey = filtered.map(function(q){
+    var i = state.questions.indexOf(q);
+    var opts = q.options.map(function(o, oi){ return (oi===q.correctIndex ? '<b>'+esc(o)+' ✓</b>' : esc(o)); }).join(' · ');
+    return '<div style="margin-bottom:10px;"><b>№'+(i+1)+' (День '+(q.day||1)+', '+(q.points||10)+' б.)</b> '+esc(q.text)+'<br>' +
+      '<span class="muted">'+opts+'</span>' + (q.hint ? '<br><span class="muted">📍 '+esc(q.hint)+'</span>' : '') + '</div>';
+  }).join('');
+
+  var printLabel = state.listDayFilter === 'all' ? 'все дни' : ('День '+state.listDayFilter);
+
+  return '' +
+    dayTabs +
+    '<div class="card"><h3 style="font-size:16px;margin-bottom:10px;">Вопросы ('+filtered.length+')</h3>' + rows + '</div>' +
+    '<div class="card no-print"><h3 style="font-size:16px;margin-bottom:12px;">Печать — '+printLabel+'</h3>' +
+      '<div class="row">' +
+        '<button class="btn btn-outline auto" data-action="print-qr">Распечатать QR-коды</button>' +
+        '<button class="btn btn-outline auto" data-action="print-key">Распечатать ключ ответов</button>' +
+      '</div></div>' +
+    '<div id="print-area" style="display:none;">' +
+      '<div id="print-qr-area" style="display:none;">' +
+        '<h2 class="display" style="margin-bottom:14px;">QR-коды квеста — '+printLabel+'</h2>' +
+        '<div class="qr-list">'+qrGrid+'</div></div>' +
+      '<div id="print-key-area" style="display:none;">' +
+        '<h2 class="display" style="margin-bottom:14px;">Ключ ответов — '+printLabel+'</h2>' + answerKey + '</div>' +
+    '</div>';
+}
+
+function dayFilterTabs(current, actionName, days){
+  var html = '<div class="tabs no-print" style="margin-bottom:14px;">' +
+    '<button class="tab'+(current==="all"?" active":"")+'" data-action="'+actionName+'" data-day="all">Все дни</button>';
+  days.forEach(function(d){
+    html += '<button class="tab'+(current===String(d)?" active":"")+'" data-action="'+actionName+'" data-day="'+d+'">День '+d+'</button>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function adminMonitorTab(){
+  var days = getDays();
+  var dayTabs = dayFilterTabs(state.monitorDayFilter, 'set-monitor-day', days);
+  var qs = state.monitorDayFilter === 'all' ? state.questions : state.questions.filter(function(q){ return String(q.day||1) === state.monitorDayFilter; });
+  var qIds = {};
+  qs.forEach(function(q){ qIds[q.id] = true; });
+  var scans = state.scans.filter(function(s){ return qIds[s.questionId]; });
+
+  var teams = {};
+  scans.forEach(function(s){
+    if(!teams[s.team]) teams[s.team] = {scanned:0, correct:0, points:0, first: s.ts, last: s.ts};
+    teams[s.team].first = Math.min(teams[s.team].first, s.ts);
+    teams[s.team].last = Math.max(teams[s.team].last, s.answeredAt || s.ts);
+    if(s.answered){
+      teams[s.team].scanned++;
+      if(s.correct) teams[s.team].correct++;
+      teams[s.team].points += (s.ptsEarned||0);
+    }
+  });
+  var board = Object.keys(teams).map(function(t){ return {name:t, s:teams[t]}; });
+  board.sort(function(a,b){
+    if(b.s.points !== a.s.points) return b.s.points - a.s.points;
+    if(b.s.correct !== a.s.correct) return b.s.correct - a.s.correct;
+    return (a.s.last - a.s.first) - (b.s.last - b.s.first);
+  });
+
+  var boardHtml = board.length === 0 ? '<p class="muted">Пока нет отсканированных кодов.</p>' :
+    '<table class="board"><thead><tr><th>Команда</th><th>Баллы</th><th>Верно</th><th>Время в игре</th></tr></thead><tbody>' +
+    board.map(function(row, i){
+      return '<tr><td><span class="rank">'+(i+1)+'</span>'+esc(row.name)+'</td><td>'+row.s.points+'</td>' +
+        '<td>'+row.s.correct+' / '+qs.length+'</td><td>'+fmtDuration(row.s.last-row.s.first)+'</td></tr>';
+    }).join('') + '</tbody></table>';
+
+  var feed = scans.slice().sort(function(a,b){ return b.ts - a.ts; }).slice(0, 30).map(function(s){
+    var q = state.questions.find(function(qq){ return qq.id === s.questionId; });
+    var qLabel = q ? '№'+(state.questions.indexOf(q)+1) : '?';
+    var status = !s.answered ? '<span class="pill">открыт</span>' :
+      (s.correct ? '<span class="pill correct">верно +'+(s.ptsEarned||0)+'</span>' : '<span class="pill wrong">'+(s.timedOut?'время вышло':'неверно')+'</span>');
+    return '<div class="feed-row"><span>'+esc(s.team)+' — '+qLabel+' '+status+'</span><span class="meta">'+fmtTime(s.ts)+'</span></div>';
+  }).join('') || '<p class="muted">Событий пока нет.</p>';
+
+  var teamCount = Object.keys(teams).length;
+
+  return '' + dayTabs +
+    '<div class="stat-row">' +
+      '<div class="stat-card"><div class="val">'+teamCount+'</div><div class="lbl">команд в игре</div></div>' +
+      '<div class="stat-card"><div class="val">'+scans.length+' / '+qs.length+'</div><div class="lbl">кодов отсканировано</div></div>' +
+    '</div>' +
+    '<div class="card"><h3 style="font-size:16px;margin-bottom:12px;">Лидерборд</h3>' + boardHtml + '</div>' +
+    '<div class="card"><h3 style="font-size:16px;margin-bottom:6px;">Лента событий</h3>' +
+      '<p class="muted" style="margin-bottom:10px;">Обновляется автоматически каждые 3 секунды</p>' + feed + '</div>' +
+    '<div class="card no-print"><h3 style="font-size:16px;margin-bottom:10px;">Экспорт</h3>' +
+      '<button class="btn btn-outline" data-action="export-csv">Скачать результаты CSV</button></div>' +
+    '<div class="card"><h3 style="font-size:16px;margin-bottom:10px;color:var(--rust);">Опасная зона</h3>' +
+      (state.confirmReset ?
+        '<div class="confirm-box">Это удалит все вопросы, QR-коды и результаты. Продолжить?' +
+          '<div class="row" style="margin-top:8px;">' +
+            '<button class="btn btn-danger auto" data-action="reset-confirm">Да, сбросить всё</button>' +
+            '<button class="btn btn-outline auto" data-action="reset-cancel">Отмена</button>' +
+          '</div></div>' :
+        '<button class="btn btn-danger" data-action="reset-ask">Сбросить весь квест</button>') +
+    '</div>';
+}
+
+function renderQrSlots(){
+  document.querySelectorAll('.qr-slot').forEach(function(slot){
+    if(slot.childElementCount > 0) return;
+    if(typeof QRCode === 'undefined'){
+      slot.innerHTML = '<div class="muted" style="font-size:11px;">Загрузка QR…</div>';
+      setTimeout(renderQrSlots, 400);
+      return;
+    }
+    var size = parseInt(slot.dataset.size || "150", 10);
+    // correctLevel H — максимальная коррекция ошибок (до ~30% повреждений),
+    // так код надёжнее читается даже при неидеальной печати/освещении/фокусе.
+    new QRCode(slot, { text: "QUEST-" + slot.dataset.id, width: size, height: size, correctLevel: QRCode.CorrectLevel.H });
+  });
+}
+
+// ---------- ACTIONS ----------
+
+function goHome(){
+  stopScanning();
+  stopQuizTimer();
+  state.view = 'home';
+  render();
+}
+async function refreshData(){
+  state.questions = await loadQuestions();
+  state.scans = await loadScans();
+}
+function alert2(msg){ window.alert(msg); }
+
+var actions = {
+  'go-home': goHome,
+  'pick-admin': function(){ state.view = 'admin-login'; state.passwordError = false; render(); },
+  'pick-team': function(){ state.view = 'team-setup'; render(); },
+  'admin-login': async function(){
+    var val = document.getElementById('admin-pass').value;
+    if(val === ADMIN_PASSWORD){
+      state.adminAuthed = true;
+      await refreshData();
+      state.view = 'admin'; state.adminTab = 'create';
+      render();
+      startMonitorPolling();
+    } else { state.passwordError = true; render(); }
+  },
+  'admin-tab': function(btn){ state.adminTab = btn.dataset.tab; render(); },
+  'quick-set': function(btn){
+    var el = document.getElementById(btn.dataset.target);
+    if(el) el.value = btn.dataset.value;
+  },
+  'save-question': async function(){
+    var text = document.getElementById('new-q-text').value.trim();
+    var opts = [0,1,2,3].map(function(i){ return document.getElementById('new-q-opt-'+i).value.trim(); });
+    var correctRadio = document.querySelector('input[name=new-q-correct]:checked');
+    var day = parseInt(document.getElementById('new-q-day').value, 10) || 1;
+    var points = parseInt(document.getElementById('new-q-points').value, 10) || 0;
+    var timeLimit = parseInt(document.getElementById('new-q-timelimit').value, 10) || 0;
+    var hint = document.getElementById('new-q-hint').value.trim();
+    if(!text || opts.some(function(o){ return !o; })){
+      alert2('Заполните текст вопроса и все 4 варианта ответа.');
+      return;
+    }
+    if(state.editingId){
+      var q = state.questions.find(function(qq){ return qq.id === state.editingId; });
+      q.text = text; q.options = opts; q.correctIndex = parseInt(correctRadio.value,10);
+      q.day = day; q.points = points; q.timeLimit = timeLimit; q.hint = hint;
+      state.editingId = null;
+    } else {
+      state.questions.push({
+        id: uid(), text: text, options: opts, correctIndex: parseInt(correctRadio.value,10),
+        day: day, points: points, timeLimit: timeLimit, hint: hint, createdAt: Date.now()
+      });
+    }
+    await saveQuestions(state.questions);
+    state.adminTab = 'list';
+    render();
+  },
+  'ask-edit': function(btn){ state.editingId = btn.dataset.id; state.adminTab = 'create'; render(); },
+  'cancel-edit': function(){ state.editingId = null; render(); },
+  'ask-delete': function(btn){ state.confirmDeleteId = btn.dataset.id; render(); },
+  'cancel-delete': function(){ state.confirmDeleteId = null; render(); },
+  'delete-question': async function(btn){
+    var id = btn.dataset.id;
+    state.questions = state.questions.filter(function(q){ return q.id !== id; });
+    state.confirmDeleteId = null;
+    await saveQuestions(state.questions);
+    render();
+  },
+  'set-list-day': function(btn){ state.listDayFilter = btn.dataset.day; render(); },
+  'set-monitor-day': function(btn){ state.monitorDayFilter = btn.dataset.day; render(); },
+  'print-qr': function(){
+    document.getElementById('print-area').style.display = 'block';
+    document.getElementById('print-qr-area').style.display = 'block';
+    document.getElementById('print-key-area').style.display = 'none';
+    renderQrSlots();
+    setTimeout(function(){ window.print(); }, 150);
+  },
+  'print-key': function(){
+    document.getElementById('print-area').style.display = 'block';
+    document.getElementById('print-key-area').style.display = 'block';
+    document.getElementById('print-qr-area').style.display = 'none';
+    setTimeout(function(){ window.print(); }, 150);
+  },
+  'export-csv': exportCsv,
+  'reset-ask': function(){ state.confirmReset = true; render(); },
+  'reset-cancel': function(){ state.confirmReset = false; render(); },
+  'reset-confirm': async function(){
+    state.questions = []; state.scans = [];
+    await saveQuestions([]); await saveScans([]);
+    state.confirmReset = false;
+    render();
+  },
+  'team-continue': function(){
+    var name = document.getElementById('team-name-input').value.trim();
+    if(!name){ alert2('Введите название команды.'); return; }
+    state.teamName = name;
+    state.view = 'team-scan'; state.scanError = "";
+    refreshData().then(render);
+  },
+  'team-change': function(){ stopScanning(); state.manualOpen = false; state.view = 'team-setup'; render(); },
+  'start-scan': startScanning,
+  'stop-scan': function(){ stopScanning(); render(); },
+  'manual-toggle': function(){ state.manualOpen = !state.manualOpen; render(); },
+  'manual-submit': function(){
+    var el = document.getElementById('manual-code-input');
+    var val = el ? el.value.trim() : '';
+    if(!val){ alert2('Введите код с карточки.'); return; }
+    state.manualOpen = false;
+    stopScanning();
+    handleScanResult(val);
+  },
+  'scan-next': function(){
+    state.view = 'team-scan'; state.scanError = ""; state.manualOpen = false;
+    refreshData().then(render);
+  },
+  'answer': function(btn){ submitAnswer(parseInt(btn.dataset.i, 10)); }
+};
+
+document.addEventListener('click', function(e){
+  var btn = e.target.closest('[data-action]');
+  if(!btn) return;
+  var fn = actions[btn.dataset.action];
+  if(fn) fn(btn, e);
+});
+
+// ---------- CSV EXPORT ----------
+function exportCsv(){
+  var dayFilter = state.monitorDayFilter;
+  var qs = dayFilter === 'all' ? state.questions : state.questions.filter(function(q){ return String(q.day||1) === dayFilter; });
+  var qIds = qs.map(function(q){ return q.id; });
+  var rows = state.scans.filter(function(s){ return qIds.indexOf(s.questionId) !== -1; });
+  var header = ['День','№','Вопрос','Команда','Время открытия','Ответ команды','Правильный ответ','Результат','Баллы'];
+  var lines = [header.join(';')];
+  rows.sort(function(a,b){ return a.ts - b.ts; }).forEach(function(s){
+    var q = state.questions.find(function(qq){ return qq.id === s.questionId; });
+    if(!q) return;
+    var num = state.questions.indexOf(q) + 1;
+    var teamOpt = !s.answered ? '—' : (s.optionIndex === -1 ? 'время вышло' : q.options[s.optionIndex]);
+    var correctOpt = q.options[q.correctIndex];
+    var result = !s.answered ? 'не отвечено' : (s.correct ? 'верно' : 'неверно');
+    var pts = s.ptsEarned || 0;
+    var row = [q.day||1, num, csvEsc(q.text), csvEsc(s.team), fmtTime(s.ts), csvEsc(teamOpt), csvEsc(correctOpt), result, pts];
+    lines.push(row.join(';'));
+  });
+  var csv = '\uFEFF' + lines.join('\r\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'quest-results.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+
+// ---------- SCANNING ----------
+
+async function startScanning(){
+  state.scanError = "";
+  if(typeof jsQR === 'undefined'){
+    state.scanError = 'Модуль распознавания QR ещё не загрузился (проверьте интернет-соединение). Подождите пару секунд и нажмите ещё раз, либо воспользуйтесь ручным вводом кода ниже.';
+    render();
+    return;
+  }
+  state.scanning = true; render();
+  try{
+    var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    state.cameraStream = stream;
+    var video = document.getElementById('scan-video');
+    video.srcObject = stream;
+    await video.play();
+    state.rafId = requestAnimationFrame(tick);
+  }catch(err){
+    state.scanError = 'Не удалось получить доступ к камере: ' + (err && err.message ? err.message : err);
+    state.scanning = false; render();
+  }
+}
+function stopScanning(){
+  state.scanning = false;
+  if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId = null; }
+  if(state.cameraStream){ state.cameraStream.getTracks().forEach(function(t){ t.stop(); }); state.cameraStream = null; }
+}
+function tick(){
+  if(!state.scanning) return;
+  var video = document.getElementById('scan-video');
+  var canvas = document.getElementById('scan-canvas');
+  if(video && video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && typeof jsQR !== 'undefined'){
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try{
+      var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+      if(code && code.data){ handleScanResult(code.data); return; }
+    }catch(err){
+      // Не даём одной "плохой" картинке молча остановить сканирование —
+      // раньше необработанная ошибка здесь просто убивала цикл requestAnimationFrame,
+      // и камера продолжала показывать картинку, но код больше никогда не проверялся.
+      console.error('Ошибка распознавания QR:', err);
+    }
+  }
+  state.rafId = requestAnimationFrame(tick);
+}
+
+async function handleScanResult(data){
+  stopScanning();
+  var id = data.indexOf('QUEST-') === 0 ? data.slice(6) : data;
+  var questions = await loadQuestions();
+  var scans = await loadScans();
+  state.questions = questions; state.scans = scans;
+
+  var q = questions.find(function(qq){ return qq.id === id; });
+  if(!q){ state.view = 'team-notfound'; render(); return; }
+  var existing = scans.find(function(s){ return s.questionId === id; });
+  if(existing){ state.view = 'team-used'; state.usedInfo = existing; render(); return; }
+
+  var entry = { questionId: id, team: state.teamName, ts: Date.now(), answered: false };
+  scans.push(entry);
+  await saveScans(scans);
+  state.scans = scans;
+  state.currentQuestion = q;
+  state.currentEntry = entry;
+  state.view = 'team-quiz';
+  render();
+  startQuizTimer(q);
+}
+
+function startQuizTimer(q){
+  stopQuizTimer();
+  if(q.timeLimit > 0){
+    state.timeLeft = q.timeLimit;
+    state.quizTimerId = setInterval(function(){
+      state.timeLeft--;
+      if(state.timeLeft <= 0){
+        stopQuizTimer();
+        submitAnswer(-1);
+      } else {
+        render();
+      }
+    }, 1000);
+  }
+}
+function stopQuizTimer(){
+  if(state.quizTimerId){ clearInterval(state.quizTimerId); state.quizTimerId = null; }
+}
+
+async function submitAnswer(i){
+  stopQuizTimer();
+  var q = state.currentQuestion;
+  var entry = state.currentEntry;
+  entry.answered = true;
+  entry.optionIndex = i;
+  entry.answeredAt = Date.now();
+  entry.timedOut = (i === -1);
+  entry.correct = (i === q.correctIndex);
+  var pts = 0;
+  if(entry.correct){
+    pts = q.points || 0;
+    if(q.timeLimit > 0){
+      var bonus = Math.round(pts * 0.5 * (Math.max(state.timeLeft,0) / q.timeLimit));
+      pts += bonus;
+    }
+  }
+  entry.ptsEarned = pts;
+  await saveScans(state.scans);
+  state.lastCorrect = entry.correct;
+  state.view = 'team-result';
+  render();
+  if(entry.correct){ playCorrectSound(); spawnConfetti(document.getElementById('confetti-container')); }
+  else { playWrongSound(); }
+}
+
+function startMonitorPolling(){
+  if(state.monitorTimer) return;
+  state.monitorTimer = setInterval(async function(){
+    if(state.view === 'admin' && state.adminTab === 'monitor'){
+      state.questions = await loadQuestions();
+      state.scans = await loadScans();
+      render();
+    }
+  }, 3000);
+}
+
+render();
+})();
+</script>
+</body>
+</html>
