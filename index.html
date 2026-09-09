@@ -175,8 +175,45 @@
 <body>
 <canvas id="scan-canvas" style="display:none;"></canvas>
 <div id="app"></div>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
 <script>
 (function(){
+
+// ============================================================
+// НАСТРОЙКА БАЗЫ ДАННЫХ (Firebase Realtime Database)
+// Нужна, чтобы разные команды с разных телефонов видели
+// одни и те же вопросы и не могли открыть один QR дважды.
+//
+// Как получить эти значения (один раз, бесплатно, ~5 минут):
+// 1. Зайдите на https://console.firebase.google.com/ и создайте проект.
+// 2. В меню слева: Build → Realtime Database → Create Database
+//    (регион любой, режим — "test mode" на время квеста).
+// 3. Вкладка "Rules" в Realtime Database — вставьте:
+//    { "rules": { "quest": { ".read": true, ".write": true } } }
+//    (это открытый доступ без пароля — ок для разового квеста,
+//    т.к. там нет личных данных, только названия команд и ответы).
+// 4. Project settings (шестерёнка) → General → "Your apps" →
+//    добавьте Web-приложение (</> значок) → скопируйте объект
+//    firebaseConfig и вставьте нужные поля ниже.
+// 5. Сохраните файл и залейте на GitHub Pages заново.
+// ============================================================
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyA9OsHGuF8ngt-ccTNXPGAdqWAYENidu2A",
+  authDomain: "quest-7f34d.firebaseapp.com",
+  databaseURL: "https://quest-7f34d-default-rtdb.firebaseio.com",
+  projectId: "quest-7f34d"
+};
+
+var db = null;
+var firebaseReady = false;
+try{
+  if(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey.indexOf('ВСТАВЬТЕ') === -1 && typeof firebase !== 'undefined'){
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
+    firebaseReady = true;
+  }
+}catch(e){ console.error('Ошибка инициализации Firebase:', e); }
 
 var ADMIN_PASSWORD = "quest2026"; // <- поменяйте пароль организатора здесь
 
@@ -212,18 +249,35 @@ var state = {
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 async function loadQuestions(){
-  try{ var r = await window.storage.get('questions-list', true); return r ? JSON.parse(r.value) : []; }
-  catch(e){ return []; }
+  try{ var snap = await db.ref('quest/questions').once('value'); return snap.val() || []; }
+  catch(e){ console.error(e); return []; }
 }
 async function saveQuestions(list){
-  try{ await window.storage.set('questions-list', JSON.stringify(list), true); }catch(e){ console.error(e); }
+  try{ await db.ref('quest/questions').set(list); }catch(e){ console.error(e); }
 }
 async function loadScans(){
-  try{ var r = await window.storage.get('scans-log', true); return r ? JSON.parse(r.value) : []; }
-  catch(e){ return []; }
+  try{
+    var snap = await db.ref('quest/scans').once('value');
+    var obj = snap.val() || {};
+    return Object.keys(obj).map(function(qid){ var s = obj[qid] || {}; s.questionId = qid; return s; });
+  }catch(e){ console.error(e); return []; }
 }
-async function saveScans(list){
-  try{ await window.storage.set('scans-log', JSON.stringify(list), true); }catch(e){ console.error(e); }
+async function resetScans(){
+  try{ await db.ref('quest/scans').set(null); }catch(e){ console.error(e); }
+}
+// Атомарно "занимает" QR-код по его id: если запись уже существует — ничего не меняет.
+// Это защищает от гонки, когда две команды с разных телефонов сканируют один код почти одновременно.
+async function claimScan(questionId, entry){
+  var ref = db.ref('quest/scans/'+questionId);
+  return await ref.transaction(function(current){
+    if(current) return; // уже занято кем-то — отменяем транзакцию, ничего не перезаписываем
+    return entry;
+  });
+}
+// Точечное обновление уже существующей записи (например, после ответа на вопрос) —
+// не трогает записи других команд по другим вопросам.
+async function patchScan(questionId, patch){
+  try{ await db.ref('quest/scans/'+questionId).update(patch); }catch(e){ console.error(e); }
 }
 
 function fmtTime(ts){
@@ -303,6 +357,13 @@ function spawnConfetti(container){
 
 function render(){
   var app = document.getElementById('app');
+  if(!firebaseReady){
+    app.innerHTML = topbar('Квест', false) + '<div class="wrap"><div class="card hero">' +
+      '<h1 style="font-size:22px;">Нужно подключить базу данных</h1>' +
+      '<p>Чтобы разные команды на разных телефонах видели общие вопросы и результаты, впишите настройки Firebase в переменную <b>FIREBASE_CONFIG</b> в начале файла (там есть пошаговая инструкция в комментариях). После этого сохраните файл и перезалейте на хостинг.</p>' +
+    '</div></div>';
+    return;
+  }
   var html = "";
   if(state.view === 'home') html = viewHome();
   else if(state.view === 'admin-login') html = viewAdminLogin();
@@ -779,7 +840,7 @@ var actions = {
   'reset-cancel': function(){ state.confirmReset = false; render(); },
   'reset-confirm': async function(){
     state.questions = []; state.scans = [];
-    await saveQuestions([]); await saveScans([]);
+    await saveQuestions([]); await resetScans();
     state.confirmReset = false;
     render();
   },
@@ -897,18 +958,27 @@ async function handleScanResult(data){
   stopScanning();
   var id = data.indexOf('QUEST-') === 0 ? data.slice(6) : data;
   var questions = await loadQuestions();
-  var scans = await loadScans();
-  state.questions = questions; state.scans = scans;
+  state.questions = questions;
 
   var q = questions.find(function(qq){ return qq.id === id; });
   if(!q){ state.view = 'team-notfound'; render(); return; }
-  var existing = scans.find(function(s){ return s.questionId === id; });
-  if(existing){ state.view = 'team-used'; state.usedInfo = existing; render(); return; }
 
-  var entry = { questionId: id, team: state.teamName, ts: Date.now(), answered: false };
-  scans.push(entry);
-  await saveScans(scans);
-  state.scans = scans;
+  var entry = { team: state.teamName, ts: Date.now(), answered: false };
+  var result;
+  try{
+    result = await claimScan(id, entry);
+  }catch(err){
+    state.scanError = 'Не удалось связаться с базой данных: ' + (err && err.message ? err.message : err);
+    state.view = 'team-scan'; render(); return;
+  }
+  if(!result.committed){
+    // Код уже занят другой (или этой же) командой — показываем, кем и когда.
+    var existing = result.snapshot.val() || {};
+    existing.questionId = id;
+    state.view = 'team-used'; state.usedInfo = existing; render(); return;
+  }
+  entry.questionId = id;
+  state.scans.push(entry);
   state.currentQuestion = q;
   state.currentEntry = entry;
   state.view = 'team-quiz';
@@ -953,7 +1023,10 @@ async function submitAnswer(i){
     }
   }
   entry.ptsEarned = pts;
-  await saveScans(state.scans);
+  await patchScan(q.id, {
+    answered: true, optionIndex: i, answeredAt: entry.answeredAt,
+    timedOut: entry.timedOut, correct: entry.correct, ptsEarned: pts
+  });
   state.lastCorrect = entry.correct;
   state.view = 'team-result';
   render();
